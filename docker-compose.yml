@@ -1,0 +1,25 @@
+services:
+  db:
+    image: postgres:15
+    container_name: dealercore_db
+    environment:
+      POSTGRES_USER: dealer
+      POSTGRES_PASSWORD: dealer_secret
+      POSTGRES_DB: dealership
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  test_db:
+    image: postgres:15
+    container_name: dealercore_test_db
+    environment:
+      POSTGRES_USER: dealer
+      POSTGRES_PASSWORD: dealer_secret
+      POSTGRES_DB: dealership_test
+    ports:
+      - "5433:5432"
+
+volumes:
+  postgres_data:
