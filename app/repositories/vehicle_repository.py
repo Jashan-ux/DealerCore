@@ -1,10 +1,10 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from typing import Optional, List
 import uuid
 from app.models.vehicle import Vehicle
 from app.schemas.vehicle import VehicleCreate, VehicleUpdate
+
 
 class VehicleRepository:
     def __init__(self, session: AsyncSession):
@@ -52,5 +52,27 @@ class VehicleRepository:
     async def get_by_vin(self, vin: str) -> Optional[Vehicle]:
         result = await self.session.execute(
             select(Vehicle).where(Vehicle.vin == vin)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_id_with_lock(self, vehicle_id: uuid.UUID) -> Optional[Vehicle]:
+        """
+        Fetch a vehicle and acquire a PostgreSQL row-level lock using
+        SELECT FOR UPDATE.
+
+        Any other transaction that calls this method on the same row will
+        block and wait until this transaction either commits or rolls back.
+        This is the mechanism that prevents overselling.
+
+        Only call this method within an active transaction where you intend
+        to modify the row immediately afterward.
+        """
+        result = await self.session.execute(
+            select(Vehicle)
+            .where(
+                Vehicle.id == vehicle_id,
+                Vehicle.is_deleted == False,
+            )
+            .with_for_update()
         )
         return result.scalar_one_or_none()
