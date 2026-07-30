@@ -37,9 +37,21 @@ async def db_session(test_engine):
 
 
 @pytest_asyncio.fixture(scope="function")
-async def client(db_session):
+async def client(test_engine):
+    async_session = async_sessionmaker(
+        test_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
     async def override_get_db():
-        yield db_session
+        async with async_session() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
 
     app.dependency_overrides[get_db] = override_get_db
     async with AsyncClient(
@@ -85,15 +97,14 @@ async def user_auth_headers(user_tokens):
 
 
 @pytest_asyncio.fixture(scope="function")
-async def registered_admin(client):
+async def registered_admin(client, db_session):
     """
     Register a user and promote them to admin.
     In a real scenario you would use a seed script or a direct DB insert.
-    Here we register and then manually update the role via the DB session.
+    Here we register and then manually update the role via the same test DB session.
     """
     from app.repositories.user_repository import UserRepository
     from app.models.user import UserRole
-    from app.db.session import AsyncSessionLocal
 
     payload = {
         "email": "adminuser@example.com",
@@ -104,12 +115,12 @@ async def registered_admin(client):
     assert response.status_code == 201
     user_data = response.json()
 
-    # Directly update role in the database
-    async with AsyncSessionLocal() as session:
-        repo = UserRepository(session)
-        user = await repo.get_by_email("adminuser@example.com")
-        await repo.update_role(user, UserRole.ADMIN)
-        await session.commit()
+    repo = UserRepository(db_session)
+    user = await repo.get_by_email("adminuser@example.com")
+    if user is None:
+        raise AssertionError("Admin user was not created successfully")
+    await repo.update_role(user, UserRole.ADMIN)
+    await db_session.commit()
 
     return user_data
 

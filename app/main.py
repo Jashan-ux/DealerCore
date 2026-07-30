@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 import logging
 
 from app.core.config import get_settings
-from app.api.v1 import vehicles, auth  # add auth import
+from app.api.v1 import vehicles, auth, purchases  # add auth import
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -19,7 +19,9 @@ app = FastAPI(
 # Register routers
 app.include_router(vehicles.router, prefix=settings.API_V1_PREFIX)
 app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth")
-
+app.include_router(vehicles.router, prefix=settings.API_V1_PREFIX)
+app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
+app.include_router(purchases.router, prefix=settings.API_V1_PREFIX) 
 
 @app.exception_handler(IntegrityError)
 async def integrity_error_handler(request: Request, exc: IntegrityError):
