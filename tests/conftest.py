@@ -68,12 +68,17 @@ async def client(test_engine):
 @pytest_asyncio.fixture(scope="function")
 async def registered_user(client):
     """Register a standard user and return the response data."""
+    import uuid
     payload = {
         "email": "testuser@example.com",
         "password": "Secure123",
         "full_name": "Test User",
     }
-    response = await client.post("/api/v1/auth/register", json=payload)
+    response = await client.post(
+        "/api/v1/auth/register",
+        json=payload,
+        headers={"X-Test-Client-Id": f"fixture-register-user-{uuid.uuid4()}"},
+    )
     assert response.status_code == 201
     return response.json()
 
@@ -81,10 +86,14 @@ async def registered_user(client):
 @pytest_asyncio.fixture(scope="function")
 async def user_tokens(client, registered_user):
     """Login as the standard user and return the tokens."""
+    import uuid
     response = await client.post(
         "/api/v1/auth/login",
         data={"username": "testuser@example.com", "password": "Secure123"},
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Test-Client-Id": f"fixture-user-auth-{uuid.uuid4()}",
+        },
     )
     assert response.status_code == 200
     return response.json()
@@ -93,11 +102,15 @@ async def user_tokens(client, registered_user):
 @pytest_asyncio.fixture(scope="function")
 async def user_auth_headers(user_tokens):
     """Return Authorization headers for a standard user."""
-    return {"Authorization": f"Bearer {user_tokens['access_token']}"}
+    import uuid
+    return {
+        "Authorization": f"Bearer {user_tokens['access_token']}",
+        "X-Test-Client-Id": f"user-auth-client-{uuid.uuid4()}"
+    }
 
 
 @pytest_asyncio.fixture(scope="function")
-async def registered_admin(client, db_session):
+async def registered_admin(client, test_engine):
     """
     Register a user and promote them to admin.
     In a real scenario you would use a seed script or a direct DB insert.
@@ -105,22 +118,33 @@ async def registered_admin(client, db_session):
     """
     from app.repositories.user_repository import UserRepository
     from app.models.user import UserRole
+    from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+    import uuid
 
     payload = {
         "email": "adminuser@example.com",
         "password": "Secure123",
         "full_name": "Admin User",
     }
-    response = await client.post("/api/v1/auth/register", json=payload)
+    response = await client.post(
+        "/api/v1/auth/register",
+        json=payload,
+        headers={"X-Test-Client-Id": f"fixture-register-admin-{uuid.uuid4()}"},
+    )
     assert response.status_code == 201
     user_data = response.json()
 
-    repo = UserRepository(db_session)
-    user = await repo.get_by_email("adminuser@example.com")
-    if user is None:
-        raise AssertionError("Admin user was not created successfully")
-    await repo.update_role(user, UserRole.ADMIN)
-    await db_session.commit()
+    # Use the same engine (fresh session) to promote the user to admin
+    async_session = async_sessionmaker(
+        test_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    async with async_session() as session:
+        repo = UserRepository(session)
+        user = await repo.get_by_email("adminuser@example.com")
+        if user is None:
+            raise AssertionError("Admin user was not created successfully")
+        await repo.update_role(user, UserRole.ADMIN)
+        await session.commit()
 
     return user_data
 
@@ -128,10 +152,14 @@ async def registered_admin(client, db_session):
 @pytest_asyncio.fixture(scope="function")
 async def admin_tokens(client, registered_admin):
     """Login as admin and return tokens."""
+    import uuid
     response = await client.post(
         "/api/v1/auth/login",
         data={"username": "adminuser@example.com", "password": "Secure123"},
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Test-Client-Id": f"fixture-admin-auth-{uuid.uuid4()}",
+        },
     )
     assert response.status_code == 200
     return response.json()
@@ -140,4 +168,8 @@ async def admin_tokens(client, registered_admin):
 @pytest_asyncio.fixture(scope="function")
 async def admin_auth_headers(admin_tokens):
     """Return Authorization headers for an admin user."""
-    return {"Authorization": f"Bearer {admin_tokens['access_token']}"}
+    import uuid
+    return {
+        "Authorization": f"Bearer {admin_tokens['access_token']}",
+        "X-Test-Client-Id": f"admin-auth-client-{uuid.uuid4()}"
+    }
