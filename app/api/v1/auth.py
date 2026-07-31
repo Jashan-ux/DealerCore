@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth_dependencies import get_current_user
+from app.core.rate_limiter import limiter
 from app.db.dependencies import get_db
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
@@ -12,11 +13,10 @@ from app.schemas.user import (
     TokenResponse,
     UserRegister,
     UserResponse,
-    UserRoleUpdate,
 )
 from app.services.auth_service import AuthService
 
-router = APIRouter(tags=["Authentication"])
+router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
@@ -29,13 +29,10 @@ def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Register a new user account",
-    description=(
-        "Creates a new user with the USER role. "
-        "Email must be unique. Password must be at least 8 characters, "
-        "contain one uppercase letter and one digit."
-    ),
 )
+@limiter.limit("5/minute")
 async def register(
+    request: Request,
     data: UserRegister,
     service: AuthService = Depends(get_auth_service),
 ):
@@ -45,20 +42,15 @@ async def register(
 @router.post(
     "/login",
     response_model=TokenResponse,
-    summary="Login and obtain access and refresh tokens",
-    description=(
-        "Accepts form-encoded credentials (username = email, password). "
-        "Returns a short-lived access token (15 min) and a "
-        "long-lived refresh token (7 days)."
-    ),
+    summary="Login and obtain tokens",
 )
+@limiter.limit("5/minute")
 async def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     service: AuthService = Depends(get_auth_service),
 ):
-    # OAuth2PasswordRequestForm uses 'username' field for the email
-    result = await service.login(form_data.username, form_data.password)
-    return result
+    return await service.login(form_data.username, form_data.password)
 
 
 @router.post(
@@ -66,7 +58,9 @@ async def login(
     response_model=AccessTokenResponse,
     summary="Exchange refresh token for a new access token",
 )
+@limiter.limit("20/minute")
 async def refresh_token(
+    request: Request,
     data: RefreshTokenRequest,
     service: AuthService = Depends(get_auth_service),
 ):
@@ -75,8 +69,7 @@ async def refresh_token(
 
 @router.post(
     "/logout",
-    summary="Logout and revoke the refresh token",
-    description="Revokes the provided refresh token. The access token expires naturally.",
+    summary="Logout and revoke refresh token",
 )
 async def logout(
     data: RefreshTokenRequest,
@@ -89,7 +82,7 @@ async def logout(
 @router.get(
     "/me",
     response_model=UserResponse,
-    summary="Get the currently authenticated user's profile",
+    summary="Get current authenticated user profile",
 )
 async def get_me(
     current_user: User = Depends(get_current_user),
